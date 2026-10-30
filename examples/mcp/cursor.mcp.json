@@ -1,0 +1,7 @@
+{
+  "mcpServers": {
+    "revana": {
+      "url": "https://revana.si/api/mcp"
+    }
+  }
+}

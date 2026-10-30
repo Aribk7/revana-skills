@@ -1,0 +1,11 @@
+{
+  "name": "revana-skills",
+  "owner": { "name": "Revana", "email": "hello@revana.si" },
+  "plugins": [
+    {
+      "name": "revana-skills",
+      "source": "./",
+      "description": "Make AI videos, images, UGC ads and music through the Revana API, and pick the cheapest model from live prices."
+    }
+  ]
+}

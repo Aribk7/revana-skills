@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "revana": {
+      "type": "http",
+      "url": "https://revana.si/api/mcp",
+      "headers": {
+        "Authorization": "Bearer ${REVANA_API_KEY}"
+      }
+    }
+  }
+}

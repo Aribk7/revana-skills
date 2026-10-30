@@ -1,0 +1,10 @@
+{
+  "name": "revana-skills",
+  "version": "1.0.0",
+  "description": "Skills for making AI videos, images and music through the Revana API: Seedance 2.5, Veo 3.1, Kling, Wan, Hailuo, Nano Banana Pro, GPT Image, Flux, Suno and 200+ models on one key. Quotes before it spends.",
+  "author": { "name": "Revana", "email": "hello@revana.si", "url": "https://revana.si" },
+  "homepage": "https://revana.si",
+  "repository": "https://github.com/Aribk7/revana-skills",
+  "license": "MIT",
+  "keywords": ["revana", "seedance", "veo", "kling", "nano banana", "gpt image", "ai video", "image generation", "ugc ad", "n8n"]
+}

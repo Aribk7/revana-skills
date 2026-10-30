@@ -1,0 +1,17 @@
+{
+  "name": "revana-node-examples",
+  "private": true,
+  "type": "module",
+  "description": "Runnable Revana API examples. Everything except sdk.mjs uses plain fetch and needs no install.",
+  "engines": { "node": ">=18.17" },
+  "scripts": {
+    "text-to-video": "node text-to-video.mjs",
+    "image-to-video": "node image-to-video.mjs",
+    "batch-images": "node batch-images.mjs",
+    "chat": "node chat.mjs",
+    "sdk": "node sdk.mjs"
+  },
+  "dependencies": {
+    "revana": "^0.1.0"
+  }
+}

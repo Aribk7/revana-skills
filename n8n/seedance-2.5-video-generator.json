@@ -1,0 +1,475 @@
+{
+  "id": "cdc36a5b68545bb7",
+  "name": "AI video generator with Seedance 2.5 via Revana",
+  "nodes": [
+    {
+      "id": "8cc3dd1c-ed9f-54d1-a5d7-14a915a4e346",
+      "name": "About",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -220,
+        -420
+      ],
+      "parameters": {
+        "content": "## AI video generator with Seedance 2.5 via Revana\n\nOne Revana API key runs Seedance 2.5, Veo 3.1, Kling, Wan, Hailuo and 200+ more models. Change `model` in **Settings** to switch.\n\n1. Create a key at https://revana.si/dashboard.\n2. Add a **Header Auth** credential: name `Authorization`, value `Bearer sr_live_...`. Select it on the three Revana HTTP nodes.\n3. Edit **Settings** and run.\n\nThe workflow prices the job from the live list and stops if it costs more than `max_cost_usd`. Failed generations are free. Prices: https://revana.si/pricing",
+        "width": 520,
+        "height": 380
+      }
+    },
+    {
+      "id": "28cadc8f-5948-5516-ad32-17d26f3ad795",
+      "name": "Start",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        100
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "868f2e80-4df5-536e-aa69-1c50c58bd783",
+      "name": "Settings",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        220,
+        100
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "afaa42a3-801d-5a8f-a9a9-ee9a5d804f6d",
+              "name": "model",
+              "value": "seedance-2.5",
+              "type": "string"
+            },
+            {
+              "id": "8eb20df8-4fdb-5d5c-94c8-cf6b96ca6a01",
+              "name": "prompt",
+              "value": "A paper boat drifting down a rainy city street at night, close up, neon reflections, gentle rain sounds",
+              "type": "string"
+            },
+            {
+              "id": "d2236128-4710-5fba-ac22-3b7b0fee6fd6",
+              "name": "resolution",
+              "value": "720p",
+              "type": "string"
+            },
+            {
+              "id": "0400e5ab-e7fd-59c7-a0e0-4283dcaf2c22",
+              "name": "duration",
+              "value": 5,
+              "type": "number"
+            },
+            {
+              "id": "d6fe24d1-065e-57c2-8579-230b77f466b7",
+              "name": "aspect_ratio",
+              "value": "16:9",
+              "type": "string"
+            },
+            {
+              "id": "5e6fc9a1-1672-58d4-910f-94bb64ae9f9a",
+              "name": "audio",
+              "value": true,
+              "type": "boolean"
+            },
+            {
+              "id": "a0ac4d9d-289e-5fc8-ade2-6b51ff743b57",
+              "name": "image_url",
+              "value": "",
+              "type": "string"
+            },
+            {
+              "id": "5ebcb552-172c-5af5-acb5-738471e6c395",
+              "name": "max_cost_usd",
+              "value": 2,
+              "type": "number"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "be5b1d07-e9f7-5ae9-86fa-c3e701b3d6ef",
+      "name": "Get price list",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        440,
+        100
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "https://api.revana.si/v1/models",
+        "options": {}
+      }
+    },
+    {
+      "id": "17285df1-12f9-5cc2-8676-ffb465a083ee",
+      "name": "Quote",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        100
+      ],
+      "parameters": {
+        "jsCode": "// Price the job from Revana's live price list (GET /v1/models, no key). Prices change: never hardcode them.\nconst s = $('Settings').first().json;\nconst m = $input.first().json.data.find((x) => x.id === s.model);\nif (!m) throw new Error(`Unknown model ${s.model}: see https://revana.si/pricing`);\nconst usd = m.price.usd;\nconst each = typeof usd === 'number' ? usd : (s.audio ? usd[`${s.resolution}+audio`] : undefined) ?? usd[s.resolution];\nif (each === undefined) throw new Error(`${s.model} has no ${s.resolution} price: ${JSON.stringify(usd)}`);\nconst seconds = m.price.unit === 'per_second' ? s.duration : 1;\nconst quote_usd = Math.ceil(each * seconds * 100) / 100;\nreturn [{ json: { ...s, quote_usd } }];"
+      }
+    },
+    {
+      "id": "38db7e19-906b-5927-8ffd-94872174ecdf",
+      "name": "Within budget?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        880,
+        100
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "d9c5be1e-4dbd-5124-adee-b8a8caca9737",
+              "leftValue": "={{ $json.quote_usd }}",
+              "rightValue": "={{ $json.max_cost_usd }}",
+              "operator": {
+                "type": "number",
+                "operation": "lte"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "cde35ee4-db65-5273-b7d7-36c79d449ec0",
+      "name": "Over budget",
+      "type": "n8n-nodes-base.stopAndError",
+      "typeVersion": 1,
+      "position": [
+        1100,
+        300
+      ],
+      "parameters": {
+        "errorMessage": "=This job costs ${{ $json.quote_usd }}, more than max_cost_usd ${{ $json.max_cost_usd }}. Raise max_cost_usd in Settings if that is OK."
+      }
+    },
+    {
+      "id": "777b5e92-881e-5048-90fa-ab1ac2a6d607",
+      "name": "Create generation",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1100,
+        100
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.revana.si/v1/generations",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Idempotency-Key",
+              "value": "=n8n-{{ $execution.id }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: $json.model, input: { prompt: $json.prompt, resolution: $json.resolution, duration: $json.duration, aspect_ratio: $json.aspect_ratio, audio: $json.audio, ...($json.image_url ? { image_url: $json.image_url } : {}) }, max_cost_usd: $json.quote_usd }) }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "983f544d-aff4-5e26-9458-7cf163bf1313",
+      "name": "Wait",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1320,
+        100
+      ],
+      "webhookId": "29bc153c-b487-5b08-b088-8a658c7f99b6",
+      "parameters": {
+        "amount": 20,
+        "unit": "seconds"
+      }
+    },
+    {
+      "id": "430cd11e-6135-56e4-b1bd-1c473f62ecb4",
+      "name": "Get generation",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1540,
+        100
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.revana.si/v1/generations/{{ $('Create generation').first().json.id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {}
+      }
+    },
+    {
+      "id": "07c775ce-d2fc-50cf-a01f-dba4a67424fb",
+      "name": "Succeeded?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1760,
+        100
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "01b60582-b834-512b-b828-05ef959a571e",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "succeeded",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "7c7a4b1e-f8e9-5828-8b81-261cb4c44494",
+      "name": "Failed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1980,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "4c293458-9139-5899-8eb9-0890dc9254a3",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "failed",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "ad1788c6-e628-587b-baea-491be6069e22",
+      "name": "Generation failed",
+      "type": "n8n-nodes-base.stopAndError",
+      "typeVersion": 1,
+      "position": [
+        2200,
+        300
+      ],
+      "parameters": {
+        "errorMessage": "={{ $json.error.code }}: {{ $json.error.message }} (retryable: {{ $json.error.retryable }}). Failed generations are not charged."
+      }
+    },
+    {
+      "id": "b808d6d4-05fd-5428-b3aa-58d884cb8413",
+      "name": "Download video",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1980,
+        80
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.revana.si/v1/generations/{{ $json.id }}/content",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "Settings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Settings": {
+      "main": [
+        [
+          {
+            "node": "Get price list",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get price list": {
+      "main": [
+        [
+          {
+            "node": "Quote",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Quote": {
+      "main": [
+        [
+          {
+            "node": "Within budget?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Within budget?": {
+      "main": [
+        [
+          {
+            "node": "Create generation",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Over budget",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create generation": {
+      "main": [
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait": {
+      "main": [
+        [
+          {
+            "node": "Get generation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get generation": {
+      "main": [
+        [
+          {
+            "node": "Succeeded?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Succeeded?": {
+      "main": [
+        [
+          {
+            "node": "Download video",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Failed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Failed?": {
+      "main": [
+        [
+          {
+            "node": "Generation failed",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": []
+}
