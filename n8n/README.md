@@ -16,9 +16,14 @@ Both run the same way:
 
 - **Quote** reads today's prices from `GET https://api.revana.si/v1/models` (no key). Nothing is hardcoded, so price
   changes flow through.
-- The job is sent with `max_cost_usd` set to that quote, so it can never cost more, and with an `Idempotency-Key`
-  (`n8n-<execution id>`), so a retried request never makes a second video.
-- Failed generations are not charged.
+- The job is sent with `max_cost_usd` set to that quote, so it can never cost more. With a start image
+  (`image_url`) Seedance 2.5 costs more than the list shows, so such a job is capped at your `max_cost_usd` from
+  **Settings** instead: leave room in it.
+- **Quote** also makes the run's `Idempotency-Key` once (`n8n-<execution id>-<time>-<random>`; the execution id alone
+  repeats across n8n instances and reinstalls). **Create generation** retries a dropped connection or a server
+  error up to 3 times with that same key, so a retry never makes a second video.
+- Failed generations are not charged. To try a failed one again, run the workflow again: a new run makes a new
+  key (resending the old key would only answer the failed generation).
 
 ## Import
 
