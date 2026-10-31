@@ -32,8 +32,8 @@ quote_job() {
             else ((if $b.input.audio then .[($b.input.resolution // "") + "+audio"] else null end)
                   // .[$b.input.resolution // ""]) end) as $each
         | select($each != null)
-        | ($each * (if $p.unit == "per_second" then ($b.input.duration // 5) else 1 end) * 100 - 1e-6) | ceil / 100')
-      [ -n "$PRICE" ] || { echo "No list price for this model and setting: see $API/v1/models" >&2; exit 1; } ;;
+        | ($each * (if $p.unit == "per_second" then ($b.input.duration // 5) else 1 end) * 100 - 1e-6) | ceil / 100') || PRICE=
+      [ -n "$PRICE" ] || { echo "No list price for this model and setting (or no answer): see $API/v1/models" >&2; exit 1; } ;;
     *) show_error >&2; exit 1 ;;
   esac
 }

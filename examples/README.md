@@ -20,6 +20,9 @@ export REVANA_API_KEY=sr_live_...   # https://revana.si/dashboard; keep it out o
 Free to try without spending anything: `./curl/free-calls.sh` lists models and prices, shows your balance, and
 sends a request the API refuses with `422 invalid_input` (refused requests are never charged).
 
+Tests: `python3 -m unittest discover -s tests` from the repo root runs the curl, Node and Python examples and the
+n8n Quote nodes against a local mock API (no key, no credits; needs curl, jq and Node).
+
 Python on macOS from python.org may lack CA certificates: `pip install certifi`, or run its
 `Install Certificates.command`.
 

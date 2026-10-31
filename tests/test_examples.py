@@ -111,6 +111,13 @@ class CurlExamples(Base):
         self.assertEqual(r.returncode, 1)
         self.assertIn("timeout", r.stderr)
 
+    def test_no_price_list_answer_is_reported(self):
+        api = self.serve({("POST", "/v1/generations/quote"): QUOTE_404, ("GET", "/v1/models"): [(500, {"error": "x"}, {})]})
+        r = self.run_script(api, "text-to-video.sh")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("No list price", r.stderr)
+        self.assertEqual(api.find("POST", "/v1/generations"), [])
+
     def test_image_to_video_uploads_and_takes_a_cap_of_your_own(self):
         img = self.tmp / "photo.png"
         img.write_bytes(b"\x89PNG\r\n\x1a\n" + b"0" * 32)
