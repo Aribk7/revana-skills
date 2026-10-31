@@ -41,8 +41,9 @@ and ask: *"make a 5 second video of a paper boat in the rain with seedance"*, *"
 | [`revana-model-picker`](skills/revana-model-picker/SKILL.md) | The cheapest model for a job, ranked from live prices (bundled script, no key) | "cheapest veo api", "cheapest text to video" |
 | [`revana-music`](skills/revana-music/SKILL.md) | Songs and instrumentals with Suno V6 | "make a song", "suno api" |
 
-Every skill quotes the price from the live list and waits for your OK before spending, sends `max_cost_usd` at
-the agreed price, never prints your key, and works with the `revana` CLI or plain curl.
+Every skill quotes the price (from the server where it can, else the live list) and waits for your OK before
+spending, sends `max_cost_usd` at the agreed price, makes one `Idempotency-Key` per generation, never prints your
+key, and works with the `revana` CLI or plain curl.
 
 ## Examples
 
@@ -60,7 +61,8 @@ the agreed price, never prints your key, and works with the `revana` CLI or plai
 ## n8n
 
 [`n8n/`](n8n): importable workflows, *AI video generator with Seedance 2.5 via Revana* and *Product photo to UGC
-video ad*. Each one quotes from live prices, creates the job, polls with a Wait node, and downloads the video.
+video ad*. Each one quotes from live prices, creates the job with a unique Idempotency-Key, polls with a Wait
+node, and downloads the video.
 [How to import](n8n/README.md).
 
 ## The API in 30 seconds
@@ -69,18 +71,27 @@ video ad*. Each one quotes from live prices, creates the job, polls with a Wait 
 # Models, options and prices (no key)
 curl https://api.revana.si/v1/models
 
-# Make a video
+# Make a video. One Idempotency-Key per video, made once: resend with the same $KEY after a timeout or a 5xx
+KEY=$(uuidgen)
 curl https://api.revana.si/v1/generations \
-  -H "Authorization: Bearer $REVANA_API_KEY" -H "Content-Type: application/json" -H "Idempotency-Key: $(uuidgen)" \
-  -d '{"model": "seedance-2.5", "input": {"prompt": "a paper boat drifting down a rainy street", "resolution": "720p", "duration": 5}, "max_cost_usd": 1.25}'
+  -H "Authorization: Bearer $REVANA_API_KEY" -H "Content-Type: application/json" -H "Idempotency-Key: $KEY" \
+  -d '{"model": "seedance-2.5", "input": {"prompt": "a paper boat drifting down a rainy street", "resolution": "720p", "duration": 5}, "max_cost_usd": 1.05}'
 
 # Poll, then download
 curl https://api.revana.si/v1/generations/$ID -H "Authorization: Bearer $REVANA_API_KEY"
 curl -L https://api.revana.si/v1/generations/$ID/content -H "Authorization: Bearer $REVANA_API_KEY" -o out.mp4
 ```
 
-Prices change, so read them from `/v1/models` when you need them. As a dated example, on 2026-10-30 that
-5-second 720p Seedance 2.5 clip listed at $1.25.
+Prices change, so read them from `/v1/models` when you need them. As a dated example, on 2026-10-31 that
+5-second 720p Seedance 2.5 clip listed at $1.05 ($0.21 a second). With a start image (`image_url`) Seedance 2.5
+costs more than the listed price; on API versions deployed after 2026-10-31, `POST /v1/generations/quote` prices
+the exact request for free (an older server answers 404).
+
+**Retrying.** After a timeout, a dropped connection, a 5xx or a 429 on the create, resend the same body with the
+**same** Idempotency-Key: you get the generation already started, never a second charge. After a generation has
+**failed**, start again with a **new** key: the old one keeps answering the failed generation. When asking for
+help, quote the `request_id` from the error (or the `X-Request-Id` header, on API versions deployed after
+2026-10-31).
 
 Also on the same key:
 - `POST /v1/uploads`: a public link for a local file, to use as a reference (free)

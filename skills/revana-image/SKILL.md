@@ -15,7 +15,11 @@ prepaid, 100 credits = $1.
    https://revana.si/dashboard and export it in their own shell. **Never print, echo, log or write the key.**
 2. **Quote first**, tell the person the price, and wait for a yes before spending.
 3. **Always send `max_cost_usd`** at the agreed price.
-4. Send an `Idempotency-Key` header and reuse it on retries.
+4. **One `Idempotency-Key` per generation, made once** (`KEY=$(uuidgen)`; note the value, since agent shells
+   often forget variables). Resend with the **same** key after a timeout, a dropped connection, a 5xx or a 429:
+   you get the generation already started, never a second charge. After a generation has **failed**, make a
+   **new** key: the old one keeps answering the failure. The same key with a different body is
+   `409 idempotency_conflict`.
 
 ## 1. Pick a model and read its price (free, no key)
 
@@ -41,7 +45,12 @@ Image prices are `per_image`. `price.usd` is a number, or a map keyed by what ch
 (`"1:1-high"` on gpt-image-1). Price = `usd[key]` for each generation; several pictures means several
 generations. If a model's `options` say it returns more than one output, check its page before quoting.
 
-Tell the person: "One 2K Nano Banana Pro image costs $X. Go ahead?" (read X from the live list).
+Tell the person: "One 2K Nano Banana Pro image costs $X. Go ahead?" (read X from the live list, never from
+memory) and keep the agreed number as `PRICE`.
+
+On API versions deployed after 2026-10-31 the server prices the exact request for free: `POST
+/v1/generations/quote` with the same body as the create answers `quoted_usd` (an older server answers
+`404 not_found`; then use the list).
 
 ## 3. Generate
 
@@ -49,7 +58,7 @@ CLI (Node 18+):
 
 ```bash
 npx revana generate nano-banana-pro "studio photo of a matte black water bottle on wet slate, soft light" \
-  --resolution 2K --aspect 4:5 --max-cost 0.10 -o bottle.png
+  --resolution 2K --aspect 4:5 --max-cost "$PRICE" -o bottle.png
 ```
 
 Edit a local photo: add `--image photo.jpg` (uploaded for you). More references: `--ref a.png --ref b.png`.
@@ -57,14 +66,16 @@ Edit a local photo: add `--image photo.jpg` (uploaded for you). More references:
 curl:
 
 ```bash
+KEY=$(uuidgen); echo "Idempotency-Key: $KEY"   # once per generation; resend with this same value
 RESP=$(curl -s https://api.revana.si/v1/generations \
   -H "Authorization: Bearer $REVANA_API_KEY" -H "Content-Type: application/json" \
-  -H "Idempotency-Key: $(uuidgen)" \
-  -d '{"model": "nano-banana-pro",
-       "input": {"prompt": "studio photo of a matte black water bottle on wet slate, soft light",
-                 "resolution": "2K", "aspect_ratio": "4:5"},
-       "max_cost_usd": 0.10}')
-ID=$(echo "$RESP" | jq -r .id)
+  -H "Idempotency-Key: $KEY" \
+  -d "$(jq -n --argjson max "$PRICE" '{model: "nano-banana-pro",
+       input: {prompt: "studio photo of a matte black water bottle on wet slate, soft light",
+               resolution: "2K", aspect_ratio: "4:5"},
+       max_cost_usd: $max}')")
+ID=$(echo "$RESP" | jq -r '.id // empty')
+[ -n "$ID" ] || echo "$RESP" | jq .error   # refused: nothing made or charged, don't poll
 ```
 
 Input fields: `prompt`, `resolution`, `aspect_ratio`, `quality`, `seed`, `negative_prompt`, `image_url`
@@ -77,10 +88,14 @@ For a local file, `POST /v1/uploads` with `{"content_type": "image/png", "bytes"
 ## 4. Wait and download
 
 ```bash
-until S=$(curl -s https://api.revana.si/v1/generations/$ID -H "Authorization: Bearer $REVANA_API_KEY"); \
-      echo "$S" | jq -e '.status=="succeeded" or .status=="failed"' >/dev/null; do sleep 3; done
+while :; do
+  S=$(curl -s https://api.revana.si/v1/generations/$ID -H "Authorization: Bearer $REVANA_API_KEY")
+  case $(echo "$S" | jq -r '.status // "error"') in succeeded|failed|error) break;; esac
+  sleep 3
+done
 echo "$S" | jq '{status, cost_usd, n: (.output.urls | length), error}'
-curl -sL https://api.revana.si/v1/generations/$ID/content -H "Authorization: Bearer $REVANA_API_KEY" -o out.png
+[ "$(echo "$S" | jq -r .status)" = succeeded ] && \
+  curl -sL https://api.revana.si/v1/generations/$ID/content -H "Authorization: Bearer $REVANA_API_KEY" -o out.png
 ```
 
 Images usually take 5-60 s. A model can return several files: `output.urls` lists them; fetch the second with
@@ -88,8 +103,13 @@ Images usually take 5-60 s. A model can return several files: `output.urls` list
 
 ## Errors
 
-- `error.code: content_policy` (with `reason`) or `model_declined`: change the prompt. `retryable: true`: resend
-  with the same Idempotency-Key later.
+- `error.code: content_policy` (with `reason`) or `model_declined`: change the prompt, then send it with a new
+  Idempotency-Key. `retryable: true`: the same request can work later; send it again with a **new** key (the
+  old one keeps answering the failed generation).
+- A timeout, a 5xx or a 429 on the create (`Retry-After` says how long to wait): resend with the **same** key.
 - `402 insufficient_credits`: check `GET /v1/balance`; top up at https://revana.si/dashboard.
+- `403 card_required`: the account's free credit needs a saved card first; add one in the dashboard.
+- Asking for help: quote the `request_id` (`error.request_id`, or the `X-Request-Id` header; on API versions
+  deployed after 2026-10-31) and the generation `id`.
 
 Full reference: https://revana.si/llms.txt. Prices: https://revana.si/pricing.

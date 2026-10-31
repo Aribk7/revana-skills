@@ -37,6 +37,10 @@ curl -s https://api.revana.si/v1/models | jq -r '.data[] | select(.kind=="video"
 - `price.free: true` means the model costs nothing (it may cap running jobs, `options.max_active_per_account`).
 - A video job costs `usd[key] x seconds`. Check `options.durations` (a list, or `{min, max}`) and
   `options.resolutions`: values a model does not list are refused with `422 invalid_input`, free.
+- A start image (`image_url`) can cost more per second than the plain price listed: Seedance 2.5 charges more
+  with one. For image to video, treat the ranked price as the least it costs, and get the exact number from the
+  server quote (`POST /v1/generations/quote`, with a key, on API versions deployed after 2026-10-31) before
+  anything is spent.
 - Each model has a page at `https://revana.si/models/<id>`; https://revana.si/pricing has the full table, and
   https://revana.si/llms.txt lists where Revana is cheaper than other APIs, with the comparison dates.
 
@@ -46,7 +50,7 @@ curl -s https://api.revana.si/v1/models | jq -r '.data[] | select(.kind=="video"
 2. Run the ranking. Give the top 2-4 with the job price, and say which you'd pick and why (the cheapest is not
    always right: Seedance 2.5 and Veo 3.1 lead on quality, Wan/Hailuo/MiniMax/Grok are cheaper drafts).
 3. Mention the date of the prices ("live price list, today"). For a different price book (enterprise or volume)
-   the generation's own `quoted_usd` is the source of truth.
+   the server's quote, or the generation's own `quoted_usd`, is the source of truth.
 4. If they want to run it, hand off to `revana-video` or `revana-image`: quote, get a yes, pass `max_cost_usd`.
 
 Never print the person's `REVANA_API_KEY`; the price list needs no key at all.
