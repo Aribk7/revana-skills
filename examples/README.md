@@ -36,5 +36,5 @@ curl https://api.revana.si/v1/generations \
 
 The start-image examples (`image-to-video`) can quote low from the list on an API without the server quote:
 Seedance 2.5 costs more with a start image than its listed price. Then the create is refused with
-`422 max_cost_exceeded` (free); pass a higher cap with `MAX_COST=1.50` (curl) or `--max-cost 1.50` (Node,
-Python).
+`422 max_cost_exceeded` (free); pass a higher cap with `MAX_COST=1.50` (curl), `--max-cost 1.50` (Node) or
+`--max-cost=1.50` (Python).

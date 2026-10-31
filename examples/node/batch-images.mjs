@@ -11,14 +11,14 @@ const prompts = [
 ];
 const base = { resolution: "2K", aspect_ratio: "1:1" };
 
-const q = await quote(model, base);
-const total = Math.round(q.usd * prompts.length * 10000) / 10000;
-console.log(`${prompts.length} x ${model} at ${q.setting}: $${q.usd} each, $${total} in all`);
+const q = await quote(model, { ...base, prompt: prompts[0] }); // every picture has the same settings, so the same price
+const total = Math.round(q.usd * prompts.length * 100) / 100;
+console.log(`${prompts.length} x ${model} (${q.setting}): $${q.usd} each, $${total} in all`);
 if (!(await confirm(`Spend up to $${total}?`))) process.exit(0);
 
 const results = await Promise.allSettled(
   prompts.map(async (prompt, n) => {
-    const gen = await create(model, { ...base, prompt }, q.usd);
+    const gen = await create(model, { ...base, prompt }, q.usd); // its own Idempotency-Key, reused on resends
     const done = await wait(gen.id, { everyMs: 3000, log: false });
     const file = await download(done.id, `batch-${n + 1}.png`);
     return `${file} ($${done.cost_usd})`;
