@@ -15,16 +15,16 @@ prompts = [
 ]
 base = {"resolution": "2K", "aspect_ratio": "1:1"}
 
-q = quote(model, base)
-total = round(q["usd"] * len(prompts), 4)
-print(f"{len(prompts)} x {model} at {q['setting']}: ${q['usd']} each, ${total} in all")
+q = quote(model, {**base, "prompt": prompts[0]})  # every picture has the same settings, so the same price
+total = round(q["usd"] * len(prompts), 2)
+print(f"{len(prompts)} x {model} ({q['setting']}): ${q['usd']} each, ${total} in all")
 if not confirm(f"Spend up to ${total}?"):
     sys.exit(0)
 
 
 def one(n_prompt):
     n, prompt = n_prompt
-    gen = create(model, {**base, "prompt": prompt}, q["usd"])
+    gen = create(model, {**base, "prompt": prompt}, q["usd"])  # its own Idempotency-Key, reused on resends
     done = wait(gen["id"], every_s=3, log=False)
     return f"{download(done['id'], f'batch-{n + 1}.png')} (${done['cost_usd']})"
 

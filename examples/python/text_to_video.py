@@ -1,4 +1,4 @@
-"""Text to video with Seedance 2.5 on Revana: quote from the live price list, confirm, generate, download.
+"""Text to video with Seedance 2.5 on Revana: quote (the server's, or the live price list), confirm, generate, download.
 
   REVANA_API_KEY=... python3 text_to_video.py "a paper boat drifting down a rainy street" [--yes]
 """
@@ -12,7 +12,7 @@ model = "seedance-2.5"
 inp = {"prompt": prompt, "resolution": "720p", "duration": 5, "aspect_ratio": "16:9", "audio": True}
 
 q = quote(model, inp)
-print(f"{model}, {inp['duration']}s {inp['resolution']}: ${q['usd']} (${q['each']}/s, {q['setting']})")
+print(f"{model}, {inp['duration']}s {inp['resolution']}: ${q['usd']} (priced by the {q['by']})")
 if not confirm(f"Spend up to ${q['usd']}?"):
     sys.exit(0)
 

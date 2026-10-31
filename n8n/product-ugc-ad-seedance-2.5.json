@@ -124,7 +124,7 @@
         100
       ],
       "parameters": {
-        "jsCode": "// Price the job from Revana's live price list (GET /v1/models, no key). Prices change: never hardcode them.\nconst s = $('Settings').first().json;\nconst m = $input.first().json.data.find((x) => x.id === s.model);\nif (!m) throw new Error(`Unknown model ${s.model}: see https://revana.si/pricing`);\nconst usd = m.price.usd;\nconst each = typeof usd === 'number' ? usd : (s.audio ? usd[`${s.resolution}+audio`] : undefined) ?? usd[s.resolution];\nif (each === undefined) throw new Error(`${s.model} has no ${s.resolution} price: ${JSON.stringify(usd)}`);\nconst seconds = m.price.unit === 'per_second' ? s.duration : 1;\nconst quote_usd = Math.ceil(each * seconds * 100) / 100;\nreturn [{ json: { ...s, quote_usd } }];"
+        "jsCode": "// Price the job from Revana's live price list (GET /v1/models, no key). Prices change: never hardcode them.\nconst s = $('Settings').first().json;\nconst m = $input.first().json.data.find((x) => x.id === s.model);\nif (!m) throw new Error(`Unknown model ${s.model}: see https://revana.si/pricing`);\nconst usd = m.price.usd;\nconst each = typeof usd === 'number' ? usd : (s.audio ? usd[`${s.resolution}+audio`] : undefined) ?? usd[s.resolution];\nif (each === undefined) throw new Error(`${s.model} has no ${s.resolution} price: ${JSON.stringify(usd)}`);\nconst seconds = m.price.unit === 'per_second' ? s.duration : 1;\n// Up to a whole cent; rounding first keeps float noise (0.07 x 3 = 0.21000000000000002) from adding a cent.\nconst quote_usd = Math.ceil(Math.round(each * seconds * 1e6) / 1e4 - 1e-9) / 100;\nconst cap_usd = quote_usd;\n// One Idempotency-Key for this run's video, made here once. A retry of \"Create generation\" sends the same key, so it\n// returns the video already started instead of making (and charging for) a second one. The execution id alone repeats\n// across n8n instances and reinstalls, and Revana keeps keys for the account, so a random part makes it unique.\nconst rand = Array.from({ length: 4 }, () => Math.random().toString(16).slice(2, 10).padEnd(8, '0')).join('');\nconst idempotency_key = `n8n-${$execution.id}-${Date.now().toString(36)}-${rand}`;\nreturn [{ json: { ...s, quote_usd, cap_usd, idempotency_key } }];"
       }
     },
     {
@@ -192,15 +192,18 @@
           "parameters": [
             {
               "name": "Idempotency-Key",
-              "value": "=n8n-{{ $execution.id }}"
+              "value": "={{ $json.idempotency_key }}"
             }
           ]
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ model: $json.model, input: { prompt: `Handheld selfie UGC video. ${$json.person} holds the product from the reference image up to the camera, label readable, and says: \"${$json.line}\" Natural light, slight camera shake, real room sound.`, image_urls: [$json.product_image_url], resolution: $json.resolution, duration: $json.duration, aspect_ratio: $json.aspect_ratio, audio: $json.audio }, max_cost_usd: $json.quote_usd }) }}",
+        "jsonBody": "={{ JSON.stringify({ model: $json.model, input: { prompt: `Handheld selfie UGC video. ${$json.person} holds the product from the reference image up to the camera, label readable, and says: \"${$json.line}\" Natural light, slight camera shake, real room sound.`, image_urls: [$json.product_image_url], resolution: $json.resolution, duration: $json.duration, aspect_ratio: $json.aspect_ratio, audio: $json.audio }, max_cost_usd: $json.cap_usd }) }}",
         "options": {}
-      }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
     },
     {
       "id": "983f544d-aff4-5e26-9458-7cf163bf1313",
@@ -310,7 +313,7 @@
         300
       ],
       "parameters": {
-        "errorMessage": "={{ $json.error.code }}: {{ $json.error.message }} (retryable: {{ $json.error.retryable }}). Failed generations are not charged."
+        "errorMessage": "={{ $json.error.code }}: {{ $json.error.message }} (retryable: {{ $json.error.retryable }}). Failed generations are not charged. To try again, run the workflow again: each run makes a new Idempotency-Key."
       }
     },
     {

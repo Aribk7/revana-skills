@@ -16,6 +16,7 @@ function key() {
   return k;
 }
 
+/** A refused call: err.status, err.code and err.requestId (quote it when asking for help) are set. */
 export async function api(method, path, { body, idempotencyKey, auth = true } = {}) {
   const headers = {};
   if (auth) headers.authorization = `Bearer ${key()}`;
@@ -24,8 +25,11 @@ export async function api(method, path, { body, idempotencyKey, auth = true } = 
   const res = await fetch(API + path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    const e = data.error ?? {};
-    throw new Error(`${res.status} ${e.code ?? "error"}: ${e.message ?? res.statusText}`);
+    const e = typeof data.error === "object" && data.error ? data.error : { message: data.error, code: data.code };
+    const requestId = e.request_id ?? data.request_id ?? res.headers.get("x-request-id") ?? undefined;
+    const err = new Error(`${res.status} ${e.code ?? "error"}: ${e.message ?? res.statusText}${requestId ? ` (request ${requestId})` : ""}`);
+    Object.assign(err, { status: res.status, code: e.code, requestId, retryAfter: Number(res.headers.get("retry-after")) || undefined });
+    throw err;
   }
   return data;
 }
@@ -36,11 +40,26 @@ export async function models() {
 }
 
 /**
+ * Price one generation. The server's free quote (POST /v1/generations/quote) prices the exact request; API versions
+ * from before the 2026-10-31 deploy answer it 404, and then the live list prices it (listQuote). Returns
+ * { usd, by: "server" | "list", ... }; `floor: true` when the list can be low (a start image costs more on some models).
+ */
+export async function quote(modelId, input) {
+  try {
+    const q = await api("POST", "/v1/generations/quote", { body: { model: modelId, input } });
+    return { model: modelId, usd: q.quoted_usd, reserved_usd: q.reserved_usd, by: "server", setting: "server quote" };
+  } catch (err) {
+    if (err.status !== 404) throw err;
+  }
+  return listQuote(modelId, input);
+}
+
+/**
  * Price one generation from the live list: per_second x duration, per_image, or per_job.
  * price.usd is a number or a map keyed by resolution ("720p"), "<res>+audio", quality, or "<aspect>-<quality>".
  * If no key matches, the dearest listed setting is used so the quote never comes in low.
  */
-export async function quote(modelId, input) {
+export async function listQuote(modelId, input) {
   const m = (await models()).find((x) => x.id === modelId);
   if (!m) throw new Error(`No model "${modelId}" in /v1/models`);
   const { unit, usd } = m.price;
@@ -64,8 +83,8 @@ export async function quote(modelId, input) {
     }
   }
   const seconds = unit === "per_second" ? (input.duration ?? 5) : 1;
-  const usdTotal = Math.round(each * seconds * 10000) / 10000;
-  return { model: m.id, unit, setting, each, seconds, usd: usdTotal };
+  const usdTotal = Math.ceil(Math.round(each * seconds * 1e6) / 1e4 - 1e-9) / 100; // up to a whole cent
+  return { model: m.id, unit, setting, each, seconds, usd: usdTotal, by: "list", floor: unit === "per_second" && !!input.image_url };
 }
 
 /** Ask before spending. --yes on the command line skips the question. */
@@ -81,8 +100,30 @@ export async function confirm(question) {
   return /^y(es)?$/i.test(answer.trim());
 }
 
-export function create(model, input, maxCostUsd, idempotencyKey = randomUUID()) {
-  return api("POST", "/v1/generations", { body: { model, input, max_cost_usd: maxCostUsd }, idempotencyKey });
+/**
+ * Start one generation. Its Idempotency-Key is made once, here: a resend after no answer, a 429 or a 5xx carries the
+ * same key, so it returns the generation already started instead of making (and charging for) a second one.
+ * After a generation has failed, call create again: that makes a new key (the old one keeps answering the failure).
+ */
+export async function create(model, input, maxCostUsd, idempotencyKey = randomUUID(), { tries = 4 } = {}) {
+  for (let n = 1; ; n++) {
+    try {
+      return await api("POST", "/v1/generations", { body: { model, input, max_cost_usd: maxCostUsd }, idempotencyKey });
+    } catch (err) {
+      const again = err.status === undefined || err.status === 429 || err.status >= 500;
+      if (!again || n >= tries) throw err;
+      const s = err.retryAfter ?? 5 * n;
+      process.stderr.write(`  create: ${err.message}; resending with the same key in ${s}s\n`);
+      await new Promise((r) => setTimeout(r, s * 1000));
+    }
+  }
+}
+
+/** --max-cost <usd> on the command line: a cap of your own instead of the quote. */
+export function maxCostArg() {
+  const i = process.argv.indexOf("--max-cost");
+  const v = i > 0 ? Number(process.argv[i + 1]) : NaN;
+  return Number.isFinite(v) && v > 0 ? v : undefined;
 }
 
 /** Poll until succeeded (returned) or failed (thrown). */

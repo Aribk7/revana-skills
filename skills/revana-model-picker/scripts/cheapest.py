@@ -121,6 +121,9 @@ def main():
     print(f"{'model':32} {label:>11}  detail")
     for r in rows:
         print(f"{r['id']:32} {('$%.4g' % r['usd']):>11}  {r['detail']}")
+    if a.task == "image_to_video":
+        print("\nWith a start image some models (Seedance 2.5 among them) charge more than the listed price: these are"
+              "\nthe least each costs. POST /v1/generations/quote (with a key) prices the exact request.")
 
 
 if __name__ == "__main__":

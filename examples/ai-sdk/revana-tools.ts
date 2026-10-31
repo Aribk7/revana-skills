@@ -11,13 +11,22 @@ import { z } from "zod";
 
 const API = "https://api.revana.si";
 
+class RevanaError extends Error {
+  constructor(public status: number, public code?: string, message?: string, public requestId?: string) {
+    super(`${status} ${code ?? "error"}: ${message ?? ""}${requestId ? ` (request ${requestId})` : ""}`);
+  }
+}
+
 async function revana(path: string, init: RequestInit = {}) {
   const res = await fetch(API + path, {
     ...init,
     headers: { authorization: `Bearer ${process.env.REVANA_API_KEY}`, "content-type": "application/json", ...init.headers },
   });
-  const body = await res.json();
-  if (!res.ok) throw new Error(`${res.status} ${body.error?.code}: ${body.error?.message}`);
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const e = body.error ?? {};
+    throw new RevanaError(res.status, e.code, e.message, e.request_id ?? res.headers.get("x-request-id") ?? undefined);
+  }
   return body;
 }
 
@@ -31,14 +40,29 @@ const videoInput = z.object({
   image_url: z.string().url().optional().describe("Public https link to the first frame"),
 });
 
-async function price(input: z.infer<typeof videoInput>) {
+/**
+ * The server's free quote (POST /v1/generations/quote) prices the exact request. API versions from before the
+ * 2026-10-31 deploy answer it 404; then the live list prices it, which does not show what a start image adds on some
+ * models (Seedance 2.5): the answer says so.
+ */
+async function price({ model, ...input }: z.infer<typeof videoInput>) {
+  try {
+    const q = await revana("/v1/generations/quote", { method: "POST", body: JSON.stringify({ model, input }) });
+    return { usd: q.quoted_usd as number, exact: true };
+  } catch (err) {
+    if (!(err instanceof RevanaError) || err.status !== 404) throw err;
+  }
+  return { usd: await listPrice({ model, ...input }), exact: !input.image_url };
+}
+
+async function listPrice(input: z.infer<typeof videoInput>) {
   const { data } = await (await fetch(`${API}/v1/models`)).json();
   const m = data.find((x: { id: string }) => x.id === input.model);
   if (!m) throw new Error(`Unknown model ${input.model}; see GET ${API}/v1/models`);
   const usd = m.price.usd;
   const each = typeof usd === "number" ? usd : (input.audio ? usd[`${input.resolution}+audio`] : undefined) ?? usd[input.resolution];
   if (each === undefined) throw new Error(`${input.model} has no ${input.resolution} price: ${JSON.stringify(usd)}`);
-  return Math.ceil(each * input.duration * 100) / 100;
+  return Math.ceil(Math.round(each * input.duration * 1e6) / 1e4 - 1e-9) / 100; // up to a whole cent
 }
 
 export const revanaTools = {
@@ -54,22 +78,42 @@ export const revanaTools = {
   }),
 
   quoteVideo: tool({
-    description: "Price a video before making it. Free. Tell the user the price and ask before generateVideo.",
+    description:
+      "Price a video before making it. Free. Tell the user the price and ask before generateVideo. exact: false means the real price can be higher (a start image); say so.",
     inputSchema: videoInput,
-    execute: async (input) => ({ usd: await price(input) }),
+    execute: async (input) => price(input),
   }),
 
   generateVideo: tool({
     description: "Make a video on Revana. Costs money: quote it first and pass max_cost_usd at the agreed price.",
-    inputSchema: videoInput.extend({ max_cost_usd: z.number().positive().describe("The price the user agreed to") }),
+    inputSchema: videoInput.extend({
+      max_cost_usd: z.number().positive().describe("The price the user agreed to"),
+      idempotency_key: z
+        .string()
+        .min(8)
+        .max(200)
+        .optional()
+        .describe(
+          "Leave out for a new video. Pass the key from an earlier call only to resend it after a timeout or a server error: that returns the same video, never a second. After a failed video, leave it out.",
+        ),
+    }),
     needsApproval: true, // the user approves every spend in the UI
-    execute: async ({ model, max_cost_usd, ...input }) => {
-      const gen = await revana("/v1/generations", {
-        method: "POST",
-        headers: { "idempotency-key": crypto.randomUUID() },
-        body: JSON.stringify({ model, input, max_cost_usd }),
-      });
-      return { id: gen.id, status: gen.status, quoted_usd: gen.quoted_usd };
+    execute: async ({ model, max_cost_usd, idempotency_key = crypto.randomUUID(), ...input }) => {
+      // One key for this video, made once: resends after no answer, a 429 or a 5xx reuse it.
+      for (let n = 1; ; n++) {
+        try {
+          const gen = await revana("/v1/generations", {
+            method: "POST",
+            headers: { "idempotency-key": idempotency_key },
+            body: JSON.stringify({ model, input, max_cost_usd }),
+          });
+          return { id: gen.id, status: gen.status, quoted_usd: gen.quoted_usd, idempotency_key };
+        } catch (err) {
+          const again = !(err instanceof RevanaError) || err.status === 429 || err.status >= 500;
+          if (!again || n >= 3) throw err;
+          await new Promise((r) => setTimeout(r, 5000 * n));
+        }
+      }
     },
   }),
 

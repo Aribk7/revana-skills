@@ -1,7 +1,8 @@
 # Revana examples
 
-Small runnable scripts against `https://api.revana.si`. Each one prices the job from the live model list first,
-asks before it spends, and sends `max_cost_usd` at that price. Pass `--yes` to skip the question.
+Small runnable scripts against `https://api.revana.si`. Each one prices the job first (the server's free quote,
+`POST /v1/generations/quote`, where the API has it, else the live model list), asks before it spends, and sends
+`max_cost_usd` at that price with one Idempotency-Key per generation. Pass `--yes` to skip the question.
 
 ```bash
 export REVANA_API_KEY=sr_live_...   # https://revana.si/dashboard; keep it out of code and git
@@ -19,14 +20,24 @@ export REVANA_API_KEY=sr_live_...   # https://revana.si/dashboard; keep it out o
 Free to try without spending anything: `./curl/free-calls.sh` lists models and prices, shows your balance, and
 sends a request the API refuses with `422 invalid_input` (refused requests are never charged).
 
+Tests: `python3 -m unittest discover -s tests` from the repo root runs the curl, Node and Python examples and the
+n8n Quote nodes against a local mock API (no key, no credits; needs curl, jq and Node).
+
 Python on macOS from python.org may lack CA certificates: `pip install certifi`, or run its
 `Install Certificates.command`.
 
 The request in short:
 
 ```bash
+KEY=$(uuidgen)   # once per generation; a resend after a timeout or 5xx uses the same $KEY
 curl https://api.revana.si/v1/generations \
-  -H "Authorization: Bearer $REVANA_API_KEY" -H "Content-Type: application/json" -H "Idempotency-Key: $(uuidgen)" \
-  -d '{"model": "seedance-2.5", "input": {"prompt": "...", "resolution": "720p", "duration": 5}, "max_cost_usd": 1.25}'
-# then GET /v1/generations/{id} until "succeeded", then GET /v1/generations/{id}/content
+  -H "Authorization: Bearer $REVANA_API_KEY" -H "Content-Type: application/json" -H "Idempotency-Key: $KEY" \
+  -d '{"model": "seedance-2.5", "input": {"prompt": "...", "resolution": "720p", "duration": 5}, "max_cost_usd": 1.05}'
+# no "id" in the answer: refused, nothing charged. Else GET /v1/generations/{id} until "succeeded" or "failed",
+# then GET /v1/generations/{id}/content. After "failed", try again with a new key.
 ```
+
+The start-image examples (`image-to-video`) can quote low from the list on an API without the server quote:
+Seedance 2.5 costs more with a start image than its listed price. Then the create is refused with
+`422 max_cost_exceeded` (free); pass a higher cap with `MAX_COST=1.50` (curl), `--max-cost 1.50` (Node) or
+`--max-cost=1.50` (Python).
